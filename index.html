@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Heizkörper Wärmepumpen-Check</title>
+  <style>
+    :root{
+      --bg:#f4f6f8; --card:#fff; --text:#17202a; --muted:#6b7280;
+      --blue:#2563eb; --dark:#374151; --green:#059669; --red:#dc2626;
+      --orange:#f97316; --border:#d1d5db; --teal:#0f9f8a;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+    header{background:#111827;color:#fff;padding:18px 14px;text-align:center}
+    header h1{margin:0;font-size:22px}
+    header p{margin:6px 0 0;color:#d1d5db;font-size:14px}
+    main{max-width:1100px;margin:0 auto;padding:14px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:15px;margin-bottom:14px;box-shadow:0 4px 14px rgba(0,0,0,.05)}
+    h2{font-size:18px;margin:0 0 12px}
+    h3{font-size:16px;margin:14px 0 8px}
+    label{display:block;font-weight:700;font-size:13px;margin:9px 0 4px}
+    input,select,button{width:100%;padding:10px;border-radius:9px;border:1px solid var(--border);font-size:14px;background:#fff}
+    button{background:var(--blue);color:white;font-weight:800;cursor:pointer;border:none;margin-top:10px}
+    button:hover{filter:brightness(.95)}
+    .btn-dark{background:var(--dark)}
+    .btn-red{background:var(--red)}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+    .muted{color:var(--muted);font-size:13px}
+    .hk-box{border:1px solid var(--border);border-radius:12px;padding:12px;margin-top:12px;background:#f9fafb}
+    .result{border-left:6px solid var(--blue);padding:12px;background:#eff6ff;border-radius:10px;margin-top:10px}
+    .ok{border-left-color:var(--green);background:#ecfdf5}
+    .warn{border-left-color:var(--orange);background:#fff7ed}
+    .bad{border-left-color:var(--red);background:#fef2f2}
+    table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
+    th,td{border-bottom:1px solid var(--border);padding:8px;text-align:left;vertical-align:top}
+    th{background:#f3f4f6}
+    .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#e5e7eb;font-size:12px;margin:2px 4px 2px 0}
+    .small{font-size:12px}
+    @media(max-width:760px){.grid,.grid-3{grid-template-columns:1fr}main{padding:10px}.card{padding:12px}table{font-size:12px}}
+    @media print{header,button,.no-print{display:none!important}body{background:white}.card{box-shadow:none;page-break-inside:avoid}}
+  </style>
+</head>
+<body>
+<header>
+  <h1>Heizkörper Wärmepumpen-Check</h1>
+  <p>Recknagel-Datenbasis · mehrere Heizkörper · echte Auswahlregeln</p>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Raumdaten</h2>
+    <div class="grid">
+      <div><label>Raumname</label><input id="roomName" value="Wohnzimmer"></div>
+      <div><label>Raum-Heizlast / Ziel-Leistung in W</label><input id="roomLoad" type="number" value="1900"></div>
+      <div><label>Vorlauf °C</label><input id="flowTemp" type="number" value="50"></div>
+      <div><label>Rücklauf °C</label><input id="returnTemp" type="number" value="40"></div>
+      <div><label>Raumtemperatur °C</label><input id="roomTemp" type="number" value="20"></div>
+      <div><label>Sicherheitszuschlag in %</label><input id="safety" type="number" value="0"></div>
+    </div>
+    <p class="muted">Normleistung 75/65/20 °C. Umrechnung über logarithmische Übertemperatur.</p>
+  </section>
+
+  <section class="card">
+    <h2>Vorschlagsart</h2>
+    <select id="suggestMode">
+      <option value="sameHeight">1. Bauhöhe behalten: nur Länge/Typ/Tiefe suchen</option>
+      <option value="sameLength">2. Baulänge behalten: nur Höhe/Typ/Tiefe suchen</option>
+      <option value="sameDepth">3. Bautiefe behalten: nur Höhe/Länge bei gleicher Tiefe suchen</option>
+      <option value="sameKind">4. Heizkörperart behalten: innerhalb gleicher Art frei suchen</option>
+      <option value="free">5. Freie Empfehlung: Heizkörperart, Höhe, Länge und Tiefe dürfen wechseln</option>
+    </select>
+    <p class="muted">Nur „freie Empfehlung“ darf wirklich alles ändern. Die anderen Modi halten ihre Einschränkung hart ein.</p>
+  </section>
+
+  <section class="card">
+    <h2>Vorhandene Heizkörper</h2>
+    <div id="radiators"></div>
+    <button onclick="addRadiator()">+ Heizkörper hinzufügen</button>
+    <button class="btn-dark" onclick="calculate()">Berechnen / Vorschläge erstellen</button>
+  </section>
+
+  <section class="card">
+    <h2>Ergebnis</h2>
+    <div id="results" class="muted">Noch keine Berechnung gestartet.</div>
+  </section>
+</main>
+
+<script>
+const compactData = [
+  {kind:"Kompaktheizkörper", type:"10", height:350, depth:65, n:1.25, unit:"m", norm:436},
+  {kind:"Kompaktheizkörper", type:"11", height:350, depth:65, n:1.25, unit:"m", norm:605},
+  {kind:"Kompaktheizkörper", type:"21", height:350, depth:100,n:1.27, unit:"m", norm:915},
+  {kind:"Kompaktheizkörper", type:"22", height:350, depth:100,n:1.28, unit:"m", norm:1102},
+  {kind:"Kompaktheizkörper", type:"33", height:350, depth:155,n:1.30, unit:"m", norm:1566},
+  {kind:"Kompaktheizkörper", type:"10", height:500, depth:65, n:1.25, unit:"m", norm:586},
+  {kind:"Kompaktheizkörper", type:"11", height:500, depth:65, n:1.27, unit:"m", norm:808},
+  {kind:"Kompaktheizkörper", type:"21", height:500, depth:100,n:1.30, unit:"m", norm:1212},
+  {kind:"Kompaktheizkörper", type:"22", height:500, depth:100,n:1.29, unit:"m", norm:1461},
+  {kind:"Kompaktheizkörper", type:"33", height:500, depth:155,n:1.31, unit:"m", norm:2124},
+  {kind:"Kompaktheizkörper", type:"10", height:600, depth:65, n:1.27, unit:"m", norm:683},
+  {kind:"Kompaktheizkörper", type:"11", height:600, depth:65, n:1.28, unit:"m", norm:943},
+  {kind:"Kompaktheizkörper", type:"21", height:600, depth:100,n:1.30, unit:"m", norm:1406},
+  {kind:"Kompaktheizkörper", type:"22", height:600, depth:100,n:1.30, unit:"m", norm:1694},
+  {kind:"Kompaktheizkörper", type:"33", height:600, depth:155,n:1.31, unit:"m", norm:2461},
+  {kind:"Kompaktheizkörper", type:"10", height:900, depth:65, n:1.29, unit:"m", norm:978},
+  {kind:"Kompaktheizkörper", type:"11", height:900, depth:65, n:1.30, unit:"m", norm:1345},
+  {kind:"Kompaktheizkörper", type:"21", height:900, depth:100,n:1.30, unit:"m", norm:1961},
+  {kind:"Kompaktheizkörper", type:"22", height:900, depth:100,n:1.32, unit:"m", norm:2355},
+  {kind:"Kompaktheizkörper", type:"33", height:900, depth:155,n:1.32, unit:"m", norm:3315}
+];
+
+const castRadiatorData = [
+  {kind:"Gussradiator", type:"T70",  height:430, depth:70,  n:1.30, unit:"glied", norm:41},
+  {kind:"Gussradiator", type:"T110", height:430, depth:110, n:1.30, unit:"glied", norm:53},
+  {kind:"Gussradiator", type:"T160", height:430, depth:160, n:1.30, unit:"glied", norm:70},
+  {kind:"Gussradiator", type:"T220", height:430, depth:220, n:1.30, unit:"glied", norm:92},
+  {kind:"Gussradiator", type:"T70",  height:580, depth:70,  n:1.30, unit:"glied", norm:51},
+  {kind:"Gussradiator", type:"T110", height:580, depth:110, n:1.30, unit:"glied", norm:69},
+  {kind:"Gussradiator", type:"T160", height:580, depth:160, n:1.30, unit:"glied", norm:95},
+  {kind:"Gussradiator", type:"T220", height:580, depth:220, n:1.30, unit:"glied", norm:122},
+  {kind:"Gussradiator", type:"T160", height:680, depth:160, n:1.30, unit:"glied", norm:111},
+  {kind:"Gussradiator", type:"T70",  height:980, depth:70,  n:1.30, unit:"glied", norm:84},
+  {kind:"Gussradiator", type:"T160", height:980, depth:160, n:1.30, unit:"glied", norm:154},
+  {kind:"Gussradiator", type:"T220", height:980, depth:220, n:1.30, unit:"glied", norm:196}
+];
+
+const steelRadiatorData = [
+  {kind:"Stahlradiator", type:"T160", height:300, depth:160, n:1.30, unit:"glied", norm:38},
+  {kind:"Stahlradiator", type:"T250", height:300, depth:250, n:1.30, unit:"glied", norm:58},
+  {kind:"Stahlradiator", type:"T110", height:450, depth:110, n:1.30, unit:"glied", norm:42},
+  {kind:"Stahlradiator", type:"T160", height:450, depth:160, n:1.30, unit:"glied", norm:56},
+  {kind:"Stahlradiator", type:"T220", height:450, depth:220, n:1.30, unit:"glied", norm:75},
+  {kind:"Stahlradiator", type:"T110", height:600, depth:110, n:1.30, unit:"glied", norm:55},
+  {kind:"Stahlradiator", type:"T160", height:600, depth:160, n:1.30, unit:"glied", norm:75},
+  {kind:"Stahlradiator", type:"T220", height:600, depth:220, n:1.30, unit:"glied", norm:96},
+  {kind:"Stahlradiator", type:"T110", height:1000,depth:110, n:1.30, unit:"glied", norm:92},
+  {kind:"Stahlradiator", type:"T160", height:1000,depth:160, n:1.30, unit:"glied", norm:118},
+  {kind:"Stahlradiator", type:"T220", height:1000,depth:220, n:1.30, unit:"glied", norm:154}
+];
+
+const tubeRadiatorData = [
+  {kind:"Stahlrohrradiator", type:"2-säulig", height:300, depth:65,  n:1.30, unit:"glied", norm:22},
+  {kind:"Stahlrohrradiator", type:"3-säulig", height:300, depth:105, n:1.30, unit:"glied", norm:31},
+  {kind:"Stahlrohrradiator", type:"4-säulig", height:300, depth:145, n:1.30, unit:"glied", norm:40},
+  {kind:"Stahlrohrradiator", type:"5-säulig", height:300, depth:185, n:1.30, unit:"glied", norm:48},
+  {kind:"Stahlrohrradiator", type:"6-säulig", height:300, depth:225, n:1.30, unit:"glied", norm:57},
+  {kind:"Stahlrohrradiator", type:"2-säulig", height:600, depth:65,  n:1.30, unit:"glied", norm:44},
+  {kind:"Stahlrohrradiator", type:"3-säulig", height:600, depth:105, n:1.30, unit:"glied", norm:60},
+  {kind:"Stahlrohrradiator", type:"4-säulig", height:600, depth:145, n:1.30, unit:"glied", norm:77},
+  {kind:"Stahlrohrradiator", type:"5-säulig", height:600, depth:185, n:1.30, unit:"glied", norm:95},
+  {kind:"Stahlrohrradiator", type:"6-säulig", height:600, depth:225, n:1.30, unit:"glied", norm:113},
+  {kind:"Stahlrohrradiator", type:"2-säulig", height:900, depth:65,  n:1.30, unit:"glied", norm:67},
+  {kind:"Stahlrohrradiator", type:"3-säulig", height:900, depth:105, n:1.30, unit:"glied", norm:89},
+  {kind:"Stahlrohrradiator", type:"4-säulig", height:900, depth:145, n:1.30, unit:"glied", norm:112},
+  {kind:"Stahlrohrradiator", type:"5-säulig", height:900, depth:185, n:1.30, unit:"glied", norm:138},
+  {kind:"Stahlrohrradiator", type:"6-säulig", height:900, depth:225, n:1.30, unit:"glied", norm:163},
+  {kind:"Stahlrohrradiator", type:"2-säulig", height:1000,depth:65,  n:1.30, unit:"glied", norm:73},
+  {kind:"Stahlrohrradiator", type:"3-säulig", height:1000,depth:105, n:1.30, unit:"glied", norm:98},
+  {kind:"Stahlrohrradiator", type:"4-säulig", height:1000,depth:145, n:1.30, unit:"glied", norm:124},
+  {kind:"Stahlrohrradiator", type:"5-säulig", height:1000,depth:185, n:1.30, unit:"glied", norm:151},
+  {kind:"Stahlrohrradiator", type:"6-säulig", height:1000,depth:225, n:1.30, unit:"glied", norm:180}
+];
+
+const towelData = [
+  {kind:"Handtuchheizkörper", type:"B451", height:721,  depth:55, n:1.22, unit:"stück", norm:406},
+  {kind:"Handtuchheizkörper", type:"B551", height:721,  depth:55, n:1.21, unit:"stück", norm:482},
+  {kind:"Handtuchheizkörper", type:"B701", height:721,  depth:55, n:1.19, unit:"stück", norm:595},
+  {kind:"Handtuchheizkörper", type:"B451", height:1098, depth:55, n:1.24, unit:"stück", norm:588},
+  {kind:"Handtuchheizkörper", type:"B551", height:1098, depth:55, n:1.22, unit:"stück", norm:698},
+  {kind:"Handtuchheizkörper", type:"B701", height:1098, depth:55, n:1.19, unit:"stück", norm:862},
+  {kind:"Handtuchheizkörper", type:"B451", height:1475, depth:55, n:1.25, unit:"stück", norm:764},
+  {kind:"Handtuchheizkörper", type:"B551", height:1475, depth:55, n:1.24, unit:"stück", norm:906},
+  {kind:"Handtuchheizkörper", type:"B701", height:1475, depth:55, n:1.21, unit:"stück", norm:1119},
+  {kind:"Handtuchheizkörper", type:"B451", height:1852, depth:55, n:1.26, unit:"stück", norm:934},
+  {kind:"Handtuchheizkörper", type:"B551", height:1852, depth:55, n:1.25, unit:"stück", norm:1108},
+  {kind:"Handtuchheizkörper", type:"B701", height:1852, depth:55, n:1.23, unit:"stück", norm:1368}
+];
+
+const db = [...compactData, ...castRadiatorData, ...steelRadiatorData, ...tubeRadiatorData, ...towelData];
+
+const lengths = [400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900,2000,2100,2200,2300,2400,2600,2800,3000];
+const glieder = Array.from({length:60}, (_,i)=>i+3);
+
+let count = 0;
+
+function unique(arr){ return [...new Set(arr)].sort((a,b)=>String(a).localeCompare(String(b),'de',{numeric:true})); }
+
+function addRadiator(data={}) {
+  count++;
+  const el = document.createElement("div");
+  el.className = "hk-box";
+  el.id = "hk-"+count;
+  el.innerHTML = `
+    <h3>Heizkörper ${count}</h3>
+    <div class="grid-3">
+      <div><label>Art</label><select class="hk-kind"></select></div>
+      <div><label>Typ / Ausführung</label><select class="hk-type"></select></div>
+      <div><label>Bauhöhe mm</label><select class="hk-height"></select></div>
+      <div><label class="dim-label">Baulänge mm / Gliederzahl</label><input class="hk-size" type="number"></div>
+      <div><label>Bautiefe mm</label><input class="hk-depth" type="number" readonly></div>
+      <div><label>Aktion</label><button class="btn-red" onclick="removeRadiator('${el.id}')">Entfernen</button></div>
+    </div>
+  `;
+  document.getElementById("radiators").appendChild(el);
+
+  const kindSel = el.querySelector(".hk-kind");
+  kindSel.innerHTML = unique(db.map(x=>x.kind)).map(k=>`<option value="${k}">${k}</option>`).join("");
+  kindSel.value = data.kind || "Kompaktheizkörper";
+
+  kindSel.addEventListener("change", ()=>populateTypeHeight(el));
+  el.querySelector(".hk-type").addEventListener("change", ()=>populateHeight(el));
+  el.querySelector(".hk-height").addEventListener("change", ()=>updateDepthAndLabel(el));
+
+  populateTypeHeight(el, data);
+}
+
+function removeRadiator(id){ const el=document.getElementById(id); if(el)el.remove(); }
+
+function populateTypeHeight(el, data={}) {
+  const kind = el.querySelector(".hk-kind").value;
+  const typeSel = el.querySelector(".hk-type");
+  const types = unique(db.filter(x=>x.kind===kind).map(x=>x.type));
+  typeSel.innerHTML = types.map(t=>`<option value="${t}">${t}</option>`).join("");
+  typeSel.value = data.type || types[0];
+  populateHeight(el, data);
+}
+
+function populateHeight(el, data={}) {
+  const kind = el.querySelector(".hk-kind").value;
+  const type = el.querySelector(".hk-type").value;
+  const hSel = el.querySelector(".hk-height");
+  const heights = unique(db.filter(x=>x.kind===kind && x.type===type).map(x=>x.height));
+  hSel.innerHTML = heights.map(h=>`<option value="${h}">${h}</option>`).join("");
+  hSel.value = data.height || heights[0];
+  updateDepthAndLabel(el, data);
+}
+
+function getEntry(kind,type,height){
+  return db.find(x=>x.kind===kind && x.type===type && x.height===Number(height));
+}
+
+function updateDepthAndLabel(el, data={}) {
+  const kind = el.querySelector(".hk-kind").value;
+  const type = el.querySelector(".hk-type").value;
+  const height = Number(el.querySelector(".hk-height").value);
+  const entry = getEntry(kind,type,height);
+  const size = el.querySelector(".hk-size");
+  const label = el.querySelector(".dim-label");
+  el.querySelector(".hk-depth").value = entry ? entry.depth : "";
+
+  if(entry && entry.unit === "m"){
+    label.textContent = "Baulänge mm";
+    if(!size.value || data.size) size.value = data.size || 1000;
+  } else if(entry && entry.unit === "glied"){
+    label.textContent = "Gliederzahl";
+    if(!size.value || data.size) size.value = data.size || 20;
+  } else {
+    label.textContent = "Stück / Größe";
+    size.value = 1;
+    size.readOnly = true;
+    return;
+  }
+  size.readOnly = false;
+}
+
+function logMeanTemp(v,r,l){
+  const a=v-l, b=r-l;
+  if(a<=0 || b<=0) return 0;
+  if(Math.abs(a-b)<0.0001) return a;
+  return (a-b)/Math.log(a/b);
+}
+
+function convert(norm,n,v,r,l){
+  const dtNorm = logMeanTemp(75,65,20);
+  const dt = logMeanTemp(v,r,l);
+  if(!dt || !norm || !n) return 0;
+  return norm * Math.pow(dt/dtNorm, n);
+}
+
+function normPower(entry,size){
+  if(entry.unit === "m") return entry.norm * (size/1000);
+  if(entry.unit === "glied") return entry.norm * size;
+  return entry.norm;
+}
+
+function actualPower(entry,size,v,r,l){ return convert(normPower(entry,size), entry.n, v,r,l); }
+
+function getExisting(){
+  return [...document.querySelectorAll(".hk-box")].map((el,i)=>{
+    const kind = el.querySelector(".hk-kind").value;
+    const type = el.querySelector(".hk-type").value;
+    const height = Number(el.querySelector(".hk-height").value);
+    const size = Number(el.querySelector(".hk-size").value);
+    const entry = getEntry(kind,type,height);
+    return {...entry, index:i+1, size};
+  }).filter(x=>x.kind);
+}
+
+function allowedSizes(entry, existingSize){
+  if(entry.unit === "m") return lengths;
+  if(entry.unit === "glied") return glieder;
+  return [1];
+}
+
+function findSuggestion(existing,target,mode,v,r,l){
+  const candidates = [];
+  for(const entry of db){
+    if(mode==="sameHeight" && entry.height !== existing.height) continue;
+    if(mode==="sameDepth" && entry.depth !== existing.depth) continue;
+    if(mode==="sameKind" && entry.kind !== existing.kind) continue;
+
+    for(const size of allowedSizes(entry, existing.size)){
+      if(mode==="sameLength"){
+        if(entry.unit !== existing.unit) continue;
+        if(size !== existing.size) continue;
+      }
+
+      const power = actualPower(entry,size,v,r,l);
+      candidates.push({
+        ...entry,
+        size,
+        actualPower:power,
+        diff:power-target,
+        isEnough:power>=target
+      });
+    }
+  }
+
+  const enough = candidates.filter(c=>c.isEnough).sort((a,b)=>{
+    if(Math.abs(a.diff-b.diff)>1) return a.diff-b.diff;
+    const kindPenaltyA = a.kind===existing.kind ? 0 : 1;
+    const kindPenaltyB = b.kind===existing.kind ? 0 : 1;
+    if(kindPenaltyA!==kindPenaltyB) return kindPenaltyA-kindPenaltyB;
+    const hA=Math.abs(a.height-existing.height), hB=Math.abs(b.height-existing.height);
+    if(hA!==hB) return hA-hB;
+    const dA=Math.abs(a.depth-existing.depth), dB=Math.abs(b.depth-existing.depth);
+    if(dA!==dB) return dA-dB;
+    return Math.abs(a.size-existing.size)-Math.abs(b.size-existing.size);
+  });
+
+  if(enough.length) return enough[0];
+
+  return candidates.sort((a,b)=>b.actualPower-a.actualPower)[0] || null;
+}
+
+function fmtW(v){ return Math.round(v).toLocaleString("de-DE")+" W"; }
+
+function sizeText(entry){
+  if(entry.unit==="m") return entry.height+" × "+entry.size+" mm";
+  if(entry.unit==="glied") return entry.height+" mm, "+entry.size+" Glieder";
+  return entry.height+" mm";
+}
+
+function calculate(){
+  const roomName = document.getElementById("roomName").value || "Raum";
+  const loadRaw = Number(document.getElementById("roomLoad").value);
+  const safety = Number(document.getElementById("safety").value || 0);
+  const load = loadRaw * (1+safety/100);
+  const v = Number(document.getElementById("flowTemp").value);
+  const r = Number(document.getElementById("returnTemp").value);
+  const l = Number(document.getElementById("roomTemp").value);
+  const mode = document.getElementById("suggestMode").value;
+
+  const existing = getExisting().map(x=>({
+    ...x,
+    normPower:normPower(x,x.size),
+    actualPower:actualPower(x,x.size,v,r,l)
+  }));
+
+  if(!existing.length){
+    document.getElementById("results").innerHTML = `<div class="result bad">Bitte mindestens einen Heizkörper anlegen.</div>`;
+    return;
+  }
+
+  const total = existing.reduce((s,x)=>s+x.actualPower,0);
+
+  let html = `
+    <div class="result">
+      <strong>${roomName}</strong><br>
+      Ziel-Leistung: <strong>${fmtW(load)}</strong><br>
+      Vorhanden bei ${v}/${r}/${l} °C: <strong>${fmtW(total)}</strong>
+    </div>
+    ${total>=load ? `<div class="result ok"><strong>Der Raum ist rechnerisch ausreichend versorgt.</strong></div>` : `<div class="result warn"><strong>Es fehlen rechnerisch ${fmtW(load-total)}.</strong></div>`}
+  `;
+
+  html += `<h3>Vorhandene Heizkörper</h3><table><tr><th>HK</th><th>Art</th><th>Typ</th><th>Größe</th><th>Tiefe</th><th>Norm</th><th>bei Systemtemp.</th><th>Anteil</th></tr>`;
+  for(const x of existing){
+    const share = total>0 ? x.actualPower/total : 1/existing.length;
+    html += `<tr><td>${x.index}</td><td>${x.kind}</td><td>${x.type}</td><td>${sizeText(x)}</td><td>${x.depth} mm</td><td>${fmtW(x.normPower)}</td><td>${fmtW(x.actualPower)}</td><td>${Math.round(share*100)} %</td></tr>`;
+  }
+  html += `</table>`;
+
+  html += `<h3>Vorschläge je Heizkörper</h3><table><tr><th>HK</th><th>Ziel anteilig</th><th>Vorschlag</th><th>Tiefe</th><th>Leistung</th><th>Änderungen</th><th>Bewertung</th></tr>`;
+
+  for(const x of existing){
+    const share = total>0 ? x.actualPower/total : 1/existing.length;
+    const target = load * share;
+    const s = findSuggestion(x,target,mode,v,r,l);
+
+    if(!s){
+      html += `<tr><td>${x.index}</td><td>${fmtW(target)}</td><td colspan="5">Kein Vorschlag gefunden.</td></tr>`;
+      continue;
+    }
+
+    const changes = [];
+    if(s.kind!==x.kind) changes.push("Art");
+    if(s.type!==x.type) changes.push("Typ/Tiefe");
+    if(s.height!==x.height) changes.push("Höhe");
+    if(s.size!==x.size) changes.push(s.unit==="m" ? "Länge" : "Gliederzahl");
+    if(s.depth!==x.depth && !changes.includes("Typ/Tiefe")) changes.push("Tiefe");
+
+    html += `
+      <tr>
+        <td>${x.index}</td>
+        <td>${fmtW(target)}</td>
+        <td><strong>${s.kind}</strong><br>${s.type}, ${sizeText(s)}<br><span class="muted">Norm: ${s.unit==="m" ? s.norm+" W/m" : s.norm+" W/"+s.unit}</span></td>
+        <td>${s.depth} mm</td>
+        <td>${fmtW(s.actualPower)}</td>
+        <td>${changes.length ? changes.map(c=>`<span class="pill">${c}</span>`).join("") : `<span class="pill">unverändert</span>`}</td>
+        <td>${s.actualPower>=target ? `<span class="pill">ausreichend</span><span class="pill">Reserve ${fmtW(s.actualPower-target)}</span>` : `<span class="pill">zu klein</span><span class="pill">Fehlt ${fmtW(target-s.actualPower)}</span>`}</td>
+      </tr>
+    `;
+  }
+  html += `</table>
+    <div class="result small">
+      <strong>Datenhinweis:</strong> Plattenheizkörper sind in W/m gerechnet, Radiatoren/Rohrradiatoren in W/Glied, Handtuchheizkörper als Stückleistung.
+      Für eine echte Herstellerbestellung müssen später konkrete Herstellerdaten ergänzt werden.
+    </div>`;
+
+  document.getElementById("results").innerHTML = html;
+}
+
+addRadiator({kind:"Kompaktheizkörper", type:"22", height:600, size:1000});
+addRadiator({kind:"Kompaktheizkörper", type:"22", height:600, size:500});
+</script>
+</body>
+</html>
